@@ -32,6 +32,7 @@
 
 // Catch includes
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 // autodiff includes
 #include <autodiff/forward/dual.hpp>
@@ -40,7 +41,7 @@
 #include <autodiff/forward/real/eigen.hpp>
 using namespace autodiff;
 
-TEST_CASE("testing forward derivative module", "[forward][utils][derivative]")
+TEST_CASE("testing forward derivative module", "[forward][utils][derivative][seed]")
 {
     SECTION("testing seed operations for higher-order cross derivatives...")
     {
@@ -98,5 +99,63 @@ TEST_CASE("testing forward derivative module", "[forward][utils][derivative]")
         CHECK(x[2][1] == 0.0);
         CHECK(x[3][1] == 0.0);
         CHECK(y[1] == 0.0);
+    }
+}
+
+TEST_CASE("testing forward derivative module", "[forward][utils][derivative][gradient]")
+{
+    constexpr auto atol = 1e-16;
+
+    constexpr auto f = [](const real& x, const real& y, const real& z) { return x + 2 * y * z * z; };
+    constexpr auto dfdx = [](const auto x, const auto y, const auto z) { return 1; };
+    constexpr auto dfdy = [](const auto x, const auto y, const auto z) { return 2 * z * z; };
+    constexpr auto dfdz = [](const auto x, const auto y, const auto z) { return 4 * y * z; };
+
+    SECTION("wrt, at: array of 3 separate scalars")
+    {
+        using Catch::Matchers::WithinAbs;
+
+        constexpr auto x0 = 1, y0 = -2, z0 = 5;
+        real x = x0, y = y0, z = z0;
+
+        const auto fx = gradient(f, wrt(x), at(x, y, z)); // = [df/dx]
+        CHECK_THAT(fx[0], WithinAbs(dfdx(x0, y0, z0), atol));
+
+        const auto fz = gradient(f, wrt(z), at(x, y, z)); // = [df/dz]
+        CHECK_THAT(fz[0], WithinAbs(dfdz(x0, y0, z0), atol));
+
+        const auto fyxz = gradient(f, wrt(y, x, z), at(x, y, z)); // = [df/dy, df/dx, df/dz]
+        CHECK_THAT(fyxz[0], WithinAbs(dfdy(x0, y0, z0), atol));
+        CHECK_THAT(fyxz[1], WithinAbs(dfdx(x0, y0, z0), atol));
+        CHECK_THAT(fyxz[2], WithinAbs(dfdz(x0, y0, z0), atol));
+    }
+
+    SECTION("wrt, at: variables: (2-dim, 1-dim)")
+    {
+        using Catch::Matchers::WithinAbs;
+
+        constexpr auto g = [f](const Array2real& xy, const real& z) { return f(xy[0], xy[1], z); };
+
+        constexpr auto x0 = 1, y0 = -2, z0 = 5;
+        Array2real xy(2);
+        xy << x0, y0;
+        real z = z0;
+
+        const auto gxy = gradient(g, wrt(xy), at(xy, z)); // = [df/dx, df/dy]
+        CHECK_THAT(gxy[0], WithinAbs(dfdx(x0, y0, z0), atol));
+        CHECK_THAT(gxy[1], WithinAbs(dfdy(x0, y0, z0), atol));
+
+        const auto gz = gradient(g, wrt(z), at(xy, z)); // = [df/dz]
+        CHECK_THAT(gz[0], WithinAbs(dfdz(x0, y0, z0), atol));
+
+        const auto gzxy = gradient(g, wrt(z, xy), at(xy, z)); // = [df/dz, df/dx, df/dy]
+        CHECK_THAT(gzxy[0], WithinAbs(dfdz(x0, y0, z0), atol));
+        CHECK_THAT(gzxy[1], WithinAbs(dfdx(x0, y0, z0), atol));
+        CHECK_THAT(gzxy[2], WithinAbs(dfdy(x0, y0, z0), atol));
+
+        const auto gxyz = gradient(g, wrt(xy, z), at(xy, z)); // = [df/dx, df/dy, df/dz]
+        CHECK_THAT(gxyz[0], WithinAbs(dfdx(x0, y0, z0), atol));
+        CHECK_THAT(gxyz[1], WithinAbs(dfdy(x0, y0, z0), atol));
+        CHECK_THAT(gxyz[2], WithinAbs(dfdz(x0, y0, z0), atol));
     }
 }
