@@ -33,9 +33,9 @@
 #include <array>
 
 // autodiff includes
-#include <autodiff/forward/utils/derivative.hpp>
 #include <autodiff/common/meta.hpp>
 #include <autodiff/common/vectortraits.hpp>
+#include <autodiff/forward/utils/derivative.hpp>
 
 namespace autodiff {
 namespace detail {
@@ -45,7 +45,7 @@ namespace detail {
 template<size_t N, typename V>
 class TaylorSeries
 {
-public:
+  public:
     /// The numeric floating point type of the derivatives, which can be a vector of values or just one.
     using T = std::conditional_t<isVector<V>, VectorValueType<V>, V>;
 
@@ -54,8 +54,9 @@ public:
 
     /// Construct a TaylorSeries object with given directional derivatives.
     explicit TaylorSeries(const std::array<V, N + 1>& derivatives)
-    : _derivatives(derivatives)
-    {}
+        : _derivatives(derivatives)
+    {
+    }
 
     /// Evaluate the Taylor series object with given directional derivatives.
     auto operator()(const T& t)
@@ -75,13 +76,13 @@ public:
         return _derivatives;
     }
 
-private:
+  private:
     /// The directional derivatives of the function up to Nth order.
     std::array<V, N + 1> _derivatives;
 };
 
 /// Return a TaylorSeries of a scalar or vector function *f* along a direction *v* at *x*.
-template<typename Fun, typename...Vecs, typename... Args>
+template<typename Fun, typename... Vecs, typename... Args>
 auto taylorseries(const Fun& f, const Along<Vecs...>& along, const At<Args...>& at)
 {
     auto data = derivatives(f, along, at);
