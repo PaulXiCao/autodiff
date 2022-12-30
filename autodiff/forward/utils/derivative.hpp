@@ -178,7 +178,7 @@ auto eval(const Fun& f, const At<Args...>& at, const Along<Vecs...>& along)
 template<size_t order = 1, typename Vec, Requires<isVector<Vec>> = true>
 auto derivative(const Vec& u)
 {
-    size_t len = u.size();                      // the length of the vector containing dual/real numbers
+    const size_t len = u.size();                // the length of the vector containing dual/real numbers
     using NumType = decltype(u[0]);             // get the type of the dual/real number
     using T = NumericType<NumType>;             // get the numeric/floating point type of the dual/real number
     using Res = VectorReplaceValueType<Vec, T>; // get the type of the vector containing numeric values instead of dual/real numbers (e.g., vector<real> becomes vector<double>, VectorXdual becomes VectorXd, etc.)

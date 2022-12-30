@@ -82,8 +82,8 @@ constexpr auto ForEachWrtVar(const Wrt<Vars...>& wrt, Function&& f)
 }
 
 /// Return the gradient of scalar function *f* with respect to some or all variables *x*.
-template<typename Fun, typename... Vars, typename... Args, typename Y, typename G>
-void gradient(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, Y& u, G& g)
+template<typename Fun, typename... Vars, typename... Args, typename FunRet, typename Vec>
+void gradient(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, FunRet& u, Vec& g)
 {
     static_assert(sizeof...(Vars) >= 1);
     static_assert(sizeof...(Args) >= 1);
@@ -104,11 +104,11 @@ void gradient(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, Y& u
 }
 
 /// Return the gradient of scalar function *f* with respect to some or all variables *x*.
-template<typename Fun, typename... Vars, typename... Args, typename Y>
-auto gradient(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, Y& u)
+template<typename Fun, typename... Vars, typename... Args, typename FunRet>
+auto gradient(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, FunRet& u)
 {
-    using T = NumericType<decltype(u)>; // the underlying numeric floating point type in the autodiff number u
-    using Vec = VectorX<T>;             // the gradient vector type with floating point values (not autodiff numbers!)
+    using T = NumericType<FunRet>; // the underlying numeric floating point type in the autodiff number u, e.g. double
+    using Vec = VectorX<T>;        // the gradient vector type with floating point values (not autodiff numbers!)
 
     Vec g;
     gradient(f, wrt, at, u, g);
@@ -119,24 +119,27 @@ auto gradient(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, Y& u
 template<typename Fun, typename... Vars, typename... Args>
 auto gradient(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at)
 {
-    ReturnType<Fun, Args...> u;
+    using FunRet = ReturnType<Fun, Args...>;
+    static_assert(!std::is_same_v<FunRet, void>, "The function needs a non-void return type.");
+
+    FunRet u;
     return gradient(f, wrt, at, u);
 }
 
 /// Return the Jacobian matrix of a function *f* with respect to some or all variables.
-template<typename Fun, typename... Vars, typename... Args, typename Y, typename Jac>
-void jacobian(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, Y& F, Jac& J)
+template<typename Fun, typename... Vars, typename... Args, typename FunRet, typename Mat>
+void jacobian(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, FunRet& F, Mat& J)
 {
     static_assert(sizeof...(Vars) >= 1);
     static_assert(sizeof...(Args) >= 1);
 
-    size_t n = wrt_total_length(wrt); /// using const size_t produces an error in GCC 7.3 because of the capture in the constexpr lambda in the ForEach block
+    const auto n = wrt_total_length(wrt);
     size_t m = 0;
 
     ForEachWrtVar(
         wrt, [&](auto&& i, auto&& xi) constexpr {
             static_assert(!isConst<decltype(xi)>, "Expecting non-const autodiff numbers in wrt list because these need to be seeded, and thus altered!");
-            F = eval(f, at, detail::wrt(xi)); // evaluate F with xi seeded so that dF/dxi is also computed
+            F = eval(f, at, detail::wrt(xi)); // evaluate F=f(x) with xi seeded so that dF/dxi is also computed
             if(m == 0) {
                 m = F.size();
                 J.resize(m, n);
@@ -147,12 +150,12 @@ void jacobian(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, Y& F
 }
 
 /// Return the Jacobian matrix of a function *f* with respect to some or all variables.
-template<typename Fun, typename... Vars, typename... Args, typename Y>
-auto jacobian(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, Y& F)
+template<typename Fun, typename... Vars, typename... Args, typename FunRet>
+auto jacobian(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, FunRet& F)
 {
-    using U = VectorValueType<decltype(F)>; // the type of the autodiff numbers in vector F
-    using T = NumericType<U>;               // the underlying numeric floating point type in the autodiff number U
-    using Mat = MatrixX<T>;                 // the jacobian matrix type with floating point values (not autodiff numbers!)
+    using U = VectorValueType<FunRet>; // the type of the autodiff numbers in vector F
+    using T = NumericType<U>;          // the underlying numeric floating point type in the autodiff number U
+    using Mat = MatrixX<T>;            // the jacobian matrix type with floating point values (not autodiff numbers!)
 
     Mat J;
     jacobian(f, wrt, at, F, J);
@@ -163,27 +166,24 @@ auto jacobian(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, Y& F
 template<typename Fun, typename... Vars, typename... Args>
 auto jacobian(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at)
 {
-    using Y = ReturnType<Fun, Args...>;
-    static_assert(!std::is_same_v<Y, void>,
-                  "In jacobian(f, wrt(x), at(x)), the type of x "
-                  "might not be the same as in the definition of f. "
-                  "For example, x is Eigen::VectorXdual but the "
-                  "definition of f uses Eigen::Ref<const Eigen::VectorXdual>.");
-    Y F;
+    using FunRet = ReturnType<Fun, Args...>;
+    static_assert(!std::is_same_v<FunRet, void>, "The function needs a non-void return type.");
+
+    FunRet F;
     return jacobian(f, wrt, at, F);
 }
 
-/// Return the hessian matrix of scalar function *f* with respect to some or all variables *x*.
-template<typename Fun, typename... Vars, typename... Args, typename U, typename G, typename H>
-void hessian(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, U& u, G& g, H& h)
+/// Return the Hessian matrix of scalar function *f* with respect to some or all variables *x*.
+template<typename Fun, typename... Vars, typename... Args, typename FunRet, typename Vec, typename Mat>
+void hessian(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, FunRet& u, Vec& v, Mat& H)
 {
     static_assert(sizeof...(Vars) >= 1);
     static_assert(sizeof...(Args) >= 1);
 
-    size_t n = wrt_total_length(wrt);
+    const auto n = wrt_total_length(wrt);
 
-    g.resize(n);
-    h.resize(n, n);
+    v.resize(n);
+    H.resize(n, n);
 
     ForEachWrtVar(
         wrt, [&](auto&& i, auto&& xi) constexpr {
@@ -192,35 +192,37 @@ void hessian(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, U& u,
                     static_assert(!isConst<decltype(xi)> && !isConst<decltype(xj)>, "Expecting non-const autodiff numbers in wrt list because these need to be seeded, and thus altered!");
                     if(j >= i) {                              // this take advantage of the fact the Hessian matrix is symmetric
                         u = eval(f, at, detail::wrt(xi, xj)); // evaluate u with xi and xj seeded to produce u0, du/dxi, d2u/dxidxj
-                        g[i] = derivative<1>(u);              // get du/dxi from u
-                        h(i, j) = h(j, i) = derivative<2>(u); // get d2u/dxidxj from u
+                        v[i] = derivative<1>(u);              // get du/dxi from u
+                        H(i, j) = H(j, i) = derivative<2>(u); // get d2u/dxidxj from u
                     }
                 });
         });
 }
 
-/// Return the hessian matrix of scalar function *f* with respect to some or all variables *x*.
-template<typename Fun, typename... Vars, typename... Args, typename U, typename G>
-auto hessian(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, U& u, G& g)
+/// Return the Hessian matrix of scalar function *f* with respect to some or all variables *x*.
+template<typename Fun, typename... Vars, typename... Args, typename FunRet, typename Vec>
+auto hessian(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at, FunRet& u, Vec& v)
 {
-    using T = NumericType<decltype(u)>; // the underlying numeric floating point type in the autodiff number u
-    using Mat = MatrixX<T>;             // the Hessian matrix type with floating point values (not autodiff numbers!)
+    using T = NumericType<FunRet>; // the underlying numeric floating point type in the autodiff number u
+    using Mat = MatrixX<T>;        // the Hessian matrix type with floating point values (not autodiff numbers!)
 
     Mat H;
-    hessian(f, wrt, at, u, g, H);
+    hessian(f, wrt, at, u, v, H);
     return H;
 }
 
-/// Return the hessian matrix of scalar function *f* with respect to some or all variables *x*.
+/// Return the Hessian matrix of scalar function *f* with respect to some or all variables *x*.
 template<typename Fun, typename... Vars, typename... Args>
 auto hessian(const Fun& f, const Wrt<Vars...>& wrt, const At<Args...>& at)
 {
-    using U = ReturnType<Fun, Args...>;
-    using T = NumericType<U>;
+    using FunRet = ReturnType<Fun, Args...>;
+    static_assert(!std::is_same_v<FunRet, void>, "The function needs a non-void return type.");
+    using T = NumericType<FunRet>;
     using Vec = VectorX<T>;
-    U u;
-    Vec g;
-    return hessian(f, wrt, at, u, g);
+
+    FunRet u;
+    Vec v;
+    return hessian(f, wrt, at, u, v);
 }
 
 } // namespace detail
